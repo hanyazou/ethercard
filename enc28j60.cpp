@@ -8,6 +8,15 @@
 //
 // 2010-05-20 <jc@wippler.nl>
 
+//#define DEBUG
+//#define DEBUG2
+#ifdef DEBUG
+#define showRegByte(prefix, reg) { \
+    Serial.print(F(prefix));  \
+    Serial.println(readRegByte(reg), HEX); \
+}
+#endif
+
 #if ARDUINO >= 100
 #include <Arduino.h> // Arduino 1.0
 #else
@@ -278,10 +287,31 @@ static byte readOp (byte op, byte address) {
         xferSPI(0x00);
     byte result = SPDR;
     disableChip();
+#ifdef DEBUG2
+    Serial.print("#### readOp(cs=");
+    Serial.print(selectPin);
+    Serial.print(", op=0x");
+    Serial.print(op, HEX);
+    Serial.print(", addr=0x");
+    Serial.print(address, HEX);
+    Serial.print(")=0x");
+    Serial.println(result, HEX);
+#endif
     return result;
 }
 
 static void writeOp (byte op, byte address, byte data) {
+#ifdef DEBUG2
+    Serial.print("writeOp(cs=");
+    Serial.print(selectPin);
+    Serial.print(", op=0x");
+    Serial.print(op, HEX);
+    Serial.print(", addr=0x");
+    Serial.print(address, HEX);
+    Serial.print(", data=0x");
+    Serial.print(data, HEX);
+    Serial.println(")");
+#endif
     enableChip();
     xferSPI(op | (address & ADDR_MASK));
     xferSPI(data);
@@ -372,6 +402,10 @@ static void writePhy (byte address, uint16_t data) {
 }
 
 byte ENC28J60::initialize (uint16_t size, const byte* macaddr, byte csPin) {
+#ifdef DEBUG
+    Serial.print("ENC28J60::initialize csPin=");
+    Serial.println(csPin);
+#endif
     bufferSize = size;
     if (bitRead(SPCR, SPE) == 0)
         initSPI();
@@ -379,17 +413,26 @@ byte ENC28J60::initialize (uint16_t size, const byte* macaddr, byte csPin) {
     pinMode(selectPin, OUTPUT);
     disableChip();
 
+#ifdef DEBUG
+    Serial.println("ENC28J60::initialize 1");
+#endif
     writeOp(ENC28J60_SOFT_RESET, 0, ENC28J60_SOFT_RESET);
     delay(2); // errata B7/2
     while (!readOp(ENC28J60_READ_CTRL_REG, ESTAT) & ESTAT_CLKRDY)
         ;
 
+#ifdef DEBUG
+    Serial.println("ENC28J60::initialize 2");
+#endif
     writeReg(ERXST, RXSTART_INIT);
     writeReg(ERXRDPT, RXSTART_INIT);
     writeReg(ERXND, RXSTOP_INIT);
     writeReg(ETXST, TXSTART_INIT);
     writeReg(ETXND, TXSTOP_INIT);
 
+#ifdef DEBUG
+    Serial.println("ENC28J60::initialize 3");
+#endif
     writeRegByte(ERXFCON, ERXFCON_UCEN|ERXFCON_CRCEN|ERXFCON_PMEN|ERXFCON_BCEN);
     writeReg(EPMM0, 0x303f);
     writeReg(EPMCS, 0xf7f9);
@@ -397,6 +440,9 @@ byte ENC28J60::initialize (uint16_t size, const byte* macaddr, byte csPin) {
     writeRegByte(MACON2, 0x00);
     writeOp(ENC28J60_BIT_FIELD_SET, MACON3,
             MACON3_PADCFG0|MACON3_TXCRCEN|MACON3_FRMLNEN);
+#ifdef DEBUG
+    Serial.println("ENC28J60::initialize 4");
+#endif
     writeReg(MAIPG, 0x0C12);
     writeRegByte(MABBIPG, 0x12);
     writeReg(MAMXFL, MAX_FRAMELEN);
@@ -408,15 +454,39 @@ byte ENC28J60::initialize (uint16_t size, const byte* macaddr, byte csPin) {
     writeRegByte(MAADR0, macaddr[5]);
     writePhy(PHCON2, PHCON2_HDLDIS);
     SetBank(ECON1);
+#ifdef DEBUG
+    Serial.println("ENC28J60::initialize 5");
+#endif
     writeOp(ENC28J60_BIT_FIELD_SET, EIE, EIE_INTIE|EIE_PKTIE);
     writeOp(ENC28J60_BIT_FIELD_SET, ECON1, ECON1_RXEN);
 
+#ifdef DEBUG
+    Serial.println("ENC28J60::initialize 6");
+#endif
     byte rev = readRegByte(EREVID);
     // microchip forgot to step the number on the silcon when they
     // released the revision B7. 6 is now rev B7. We still have
     // to see what they do when they release B8. At the moment
     // there is no B8 out yet
     if (rev > 5) ++rev;
+#ifdef DEBUG
+    Serial.print("ENC28J60::initialize rev=");
+    Serial.println(rev);
+    showRegByte("ENC28J60::initialize MAADR0 =", MAADR0);
+    showRegByte("ENC28J60::initialize MAADR1 =", MAADR1);
+    showRegByte("ENC28J60::initialize MAADR2 =", MAADR2);
+    showRegByte("ENC28J60::initialize MAADR3 =", MAADR3);
+    showRegByte("ENC28J60::initialize MAADR4 =", MAADR4);
+    showRegByte("ENC28J60::initialize MAADR5 =", MAADR5);
+    showRegByte("ENC28J60::initialize EBSTSD =", EBSTSD);
+    showRegByte("ENC28J60::initialize EBSTCON=", EBSTCON);
+    showRegByte("ENC28J60::initialize EBSTCS =", EBSTCS);
+    showRegByte("ENC28J60::initialize MISTAT =", MISTAT);
+    showRegByte("ENC28J60::initialize EREVID =", EREVID);
+    showRegByte("ENC28J60::initialize ECOCON =", ECOCON);
+    showRegByte("ENC28J60::initialize EFLOCON=", EFLOCON);
+    showRegByte("ENC28J60::initialize EPAUS  =", EPAUS);
+#endif
     return rev;
 }
 
@@ -462,6 +532,11 @@ struct transmit_status_vector {
 void ENC28J60::packetSend(uint16_t len) {
     byte retry = 0;
 
+#ifdef DEBUG
+    Serial.print("ENC28J60::packetSend(): ");
+    Serial.print(len);
+    Serial.println(" bytes....");
+#endif
     #if ETHERCARD_SEND_PIPELINING
         goto resume_last_transmission;
     #endif
@@ -569,6 +644,11 @@ uint16_t ENC28J60::packetReceive() {
             readBuf(len, buffer);
         buffer[len] = 0;
         unreleasedPacket = true;
+#ifdef DEBUG
+        Serial.print("ENC28J60::packetReceive(): ");
+        Serial.print(len);
+        Serial.println(" bytes receiveed.");
+#endif
 
         writeOp(ENC28J60_BIT_FIELD_SET, ECON2, ECON2_PKTDEC);
     }
