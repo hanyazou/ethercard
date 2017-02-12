@@ -17,6 +17,11 @@
 }
 #endif
 
+//#define USE_SPILIB
+#ifdef USE_SPILIB
+#include <SPI.h>
+#endif
+
 #if ARDUINO >= 100
 #include <Arduino.h> // Arduino 1.0
 #else
@@ -251,6 +256,9 @@ static byte selectPin;
 void ENC28J60::initSPI () {
     pinMode(SS, OUTPUT);
     digitalWrite(SS, HIGH);
+#ifdef USE_SPILIB
+    SPI.begin();
+#else
     pinMode(MOSI, OUTPUT);
     pinMode(SCK, OUTPUT);
     pinMode(MISO, INPUT);
@@ -261,6 +269,7 @@ void ENC28J60::initSPI () {
 
     SPCR = bit(SPE) | bit(MSTR); // 8 MHz @ 16
     bitSet(SPSR, SPI2X);
+#endif
 }
 
 static void enableChip () {
@@ -273,19 +282,28 @@ static void disableChip () {
     sei();
 }
 
+#ifndef USE_SPILIB
 static void xferSPI (byte data) {
     SPDR = data;
     while (!(SPSR&(1<<SPIF)))
         ;
 }
+#endif
 
 static byte readOp (byte op, byte address) {
     enableChip();
+#ifdef USE_SPILIB
+    SPI.transfer(op | (address & ADDR_MASK));
+    byte result = SPI.transfer(0x00);
+    if (address & 0x80)
+        result = SPI.transfer(0x00);
+#else
     xferSPI(op | (address & ADDR_MASK));
     xferSPI(0x00);
     if (address & 0x80)
         xferSPI(0x00);
     byte result = SPDR;
+#endif
     disableChip();
 #ifdef DEBUG2
     Serial.print("#### readOp(cs=");
@@ -313,8 +331,13 @@ static void writeOp (byte op, byte address, byte data) {
     Serial.println(")");
 #endif
     enableChip();
+#ifdef USE_SPILIB
+    SPI.transfer(op | (address & ADDR_MASK));
+    SPI.transfer(data);
+#else
     xferSPI(op | (address & ADDR_MASK));
     xferSPI(data);
+#endif
     disableChip();
 }
 
@@ -323,6 +346,9 @@ static void readBuf(uint16_t len, byte* data) {
 
     enableChip();
     if (len != 0) {    
+#ifdef USE_SPILIB
+        SPI.transfer(data, len);
+#else
         xferSPI(ENC28J60_READ_BUF_MEM);
           
         SPDR = 0x00; 
@@ -336,6 +362,7 @@ static void readBuf(uint16_t len, byte* data) {
         while (!(SPSR & (1<<SPIF)))
             ;
         *data++ = SPDR;    
+#endif
     }
     disableChip(); 
 }
@@ -343,6 +370,9 @@ static void readBuf(uint16_t len, byte* data) {
 static void writeBuf(uint16_t len, const byte* data) {
     enableChip();
     if (len != 0) {
+#ifdef USE_SPILIB
+        SPI.transfer(data, len);
+#else
         xferSPI(ENC28J60_WRITE_BUF_MEM);
            
         SPDR = *data++;    
@@ -354,6 +384,7 @@ static void writeBuf(uint16_t len, const byte* data) {
      	};  
         while (!(SPSR & (1<<SPIF)))
             ;
+#endif
     }
     disableChip();
 }
